@@ -118,26 +118,6 @@ Your AWS account or IAM role doesn't have Bedrock permissions.
 
 ---
 
-### ❌ Okta Session Expired
-
-**Problem:**
-Debate was working but now getting authentication errors.
-
-**Solution:**
-Okta sessions typically expire after 1 hour. Re-authenticate:
-```bash
-okta-aws-cli -p sandbox
-python main.py
-```
-
-**Pro Tip:** Create an alias:
-```bash
-# Add to ~/.bashrc or ~/.zshrc
-alias aws-login="okta-aws-cli -p sandbox && python main.py"
-```
-
----
-
 ### ⚠️ Warning: "Core Pydantic V1 functionality isn't compatible with Python 3.14"
 
 **Problem:**
@@ -153,36 +133,14 @@ UserWarning: Core Pydantic V1 functionality isn't compatible with Python 3.14 or
 
 ---
 
-### 🔍 Debug Mode
-
-To see more detailed error information:
-
-1. **Check model availability in your region:**
-   ```bash
-   aws bedrock list-foundation-models --region us-east-1 --query "modelSummaries[?contains(modelId, 'claude')].[modelId,modelName]" --output table
-   ```
-
-2. **Test AWS credentials:**
-   ```bash
-   aws sts get-caller-identity
-   ```
-
-3. **Test Bedrock access:**
-   ```bash
-   aws bedrock list-foundation-models --region us-east-1
-   ```
-
----
-
 ## Supported Model IDs Reference
 
 ### ✅ On-Demand Compatible (Direct Model IDs)
 
 ```bash
-# Claude 3 Family (RECOMMENDED for simplicity)
-anthropic.claude-3-sonnet-20240229-v1:0    # Balanced performance
-anthropic.claude-3-haiku-20240307-v1:0     # Fast and economical
-anthropic.claude-3-opus-20240229-v1:0      # Highest capability
+anthropic.claude-3-sonnet-20240229-v1:0    
+anthropic.claude-3-haiku-20240307-v1:0    
+anthropic.claude-3-opus-20240229-v1:0      
 ```
 
 ### ✅ Inference Profile ARNs (For Newer Models)
@@ -199,14 +157,6 @@ eu.anthropic.claude-3-5-sonnet-20240620-v1:0
 # Format: {region-prefix}.{model-id}
 ```
 
-### ❌ NOT Compatible (Require Special Configuration)
-
-```bash
-# These DON'T work with direct invoke_model():
-anthropic.claude-3-7-sonnet-20250219-v1:0  # ❌ Requires inference profile
-anthropic.claude-3-5-sonnet-20240620-v1:0  # ❌ Use region prefix instead
-```
-
 ---
 
 ## Getting Help
@@ -218,16 +168,6 @@ anthropic.claude-3-5-sonnet-20240620-v1:0  # ❌ Use region prefix instead
 5. **Test AWS credentials** with `aws sts get-caller-identity`
 6. **Check Bedrock model availability** in your region
 7. **Open an issue on GitHub** with full error message
-
----
-
-## Pro Tips
-
-✅ **Always authenticate with Okta first** if using Okta-based auth
-✅ **Use Claude 3 Sonnet** (`anthropic.claude-3-sonnet-20240229-v1:0`) for best compatibility
-✅ **Keep Tavily API key** for better argument quality (or use mock data)
-✅ **Start with 2 rounds** for testing, increase to 3-5 for deeper debates
-✅ **Check saved results** in `debate_result_*.txt` files
 
 ---
 
