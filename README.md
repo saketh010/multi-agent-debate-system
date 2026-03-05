@@ -1,6 +1,6 @@
 # Multi-Agent Debate System
 
-A production-ready multi-agent debate system built with **LangGraph**, **AWS Bedrock**, and **Tavily Search**. This system orchestrates structured debates between specialized AI agents, complete with evidence gathering, multi-round arguments, cross-examination, scoring, and final judgment.
+A multi-agent debate system built with **LangGraph**, **AWS Bedrock**, and **Tavily Search**. This system orchestrates structured debates between specialized AI agents, complete with evidence gathering, multi-round arguments, cross-examination, scoring, and final judgment.
 
 ## 🎯 Overview
 
@@ -56,7 +56,7 @@ The Multi-Agent Debate System enables AI agents to engage in structured technica
 
 - **Python 3.11+**
 - **AWS Account** with Bedrock access
-- **Tavily API Key** (free tier available)
+- **Tavily API Key**
 - **Okta AWS CLI** (optional, for Okta-based authentication)
 
 ## 🚀 Setup Instructions
@@ -372,13 +372,6 @@ Contributions welcome! Please:
 
 See [LICENSE](LICENSE) file for details.
 
-## 🙏 Acknowledgments
-
-- **LangGraph** for agent orchestration
-- **AWS Bedrock** for Claude 3 models
-- **Tavily** for search capabilities
-- **Anthropic** for Claude models
-
 ## 📧 Support
 
 For issues and questions:
@@ -387,5 +380,3 @@ For issues and questions:
 - Review example sessions
 
 ---
-
-**Built with ❤️ using LangGraph, AWS Bedrock, and Tavily**
