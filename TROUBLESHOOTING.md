@@ -76,50 +76,6 @@ AWS_REGION=us-east-1
 
 ---
 
-### ❌ Error: "Import langgraph could not be resolved"
-
-**Problem:**
-```
-ModuleNotFoundError: No module named 'langgraph'
-```
-
-**Solution:**
-```bash
-# Make sure virtual environment is activated
-venv\Scripts\activate   # Windows
-source venv/bin/activate  # macOS/Linux
-
-# Reinstall dependencies
-pip install -r requirements.txt
-
-# Or specifically:
-pip install langgraph>=0.2.0
-```
-
----
-
-### ❌ Error: "Tavily search error"
-
-**Problem:**
-```
-Tavily search error: [API error]
-```
-
-**Solution:**
-
-**Option 1: Add valid API key**
-1. Get free API key from https://tavily.com/
-2. Add to `.env`:
-   ```bash
-   TAVILY_API_KEY=tvly-...
-   ```
-
-**Option 2: Use mock data (no API key needed)**
-- Leave `TAVILY_API_KEY` blank in `.env`
-- System will automatically use mock search data
-- Debates will still work but with placeholder evidence
-
----
 
 ### ❌ Error: "AccessDeniedException" from Bedrock
 
