@@ -17,6 +17,7 @@ The Multi-Agent Debate System enables AI agents to engage in structured technica
 - ✅ **Okta AWS CLI support** for enterprise authentication
 - ✅ **LangGraph orchestration** with state management and memory
 - ✅ **Rich CLI interface** with formatted output
+- ✅ **Streamlit web interface** with live debate visualization
 - ✅ **Auto-save results** to timestamped files
 
 ## 🏗️ Architecture
@@ -143,7 +144,31 @@ pip install -r requirements.txt
 
 ## 🎮 Usage
 
-### Interactive Mode
+### Option 1: Web Interface (Recommended)
+
+Run the Streamlit web interface for a beautiful visual experience with live debate updates:
+
+```bash
+streamlit run streamlit_app.py
+```
+
+Or use the convenience scripts:
+- **Windows**: `run_streamlit.bat`
+- **Linux/Mac**: `./run_streamlit.sh`
+
+The web interface provides:
+- 🎨 Beautiful visual design
+- 📊 Live progress tracking during debates
+- 🎯 Real-time argument display
+- 📈 Score visualization with progress bars
+- 🏆 Winner announcement with styled verdict
+- 💾 One-click download of results
+
+See [STREAMLIT.md](STREAMLIT.md) for detailed web interface documentation.
+
+### Option 2: CLI Interface
+
+Run the command-line interface for terminal-based debates:
 
 ```bash
 python main.py

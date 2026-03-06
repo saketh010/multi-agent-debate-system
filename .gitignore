@@ -48,6 +48,10 @@ lc-academy-env/
 # Jupyter Notebook
 .ipynb_checkpoints
 
+# Streamlit
+.streamlit/secrets.toml
+.streamlit/cache/
+
 # pytest
 .pytest_cache/
 .coverage
