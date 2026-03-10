@@ -40,14 +40,15 @@ st.markdown("""
     .sub-header {
         font-size: 1.2rem;
         text-align: center;
-        color: #666;
+        color: #AAAAAA;
         margin-bottom: 2rem;
     }
     .agent-card {
         padding: 1rem;
         border-radius: 10px;
         margin: 0.5rem 0;
-        background-color: #f0f2f6;
+        background-color: #1E1E1E;
+        border: 1px solid #333;
     }
     .architect {
         border-left: 4px solid #2196F3;
@@ -76,6 +77,32 @@ st.markdown("""
     }
     .stProgress > div > div > div > div {
         background-color: #1E88E5;
+    }
+    /* Remove sidebar scrollbar and compact layout */
+    section[data-testid="stSidebar"] {
+        overflow-y: hidden !important;
+    }
+    section[data-testid="stSidebar"] > div {
+        overflow-y: hidden !important;
+    }
+    section[data-testid="stSidebar"] .block-container {
+        padding-top: 1rem !important;
+        padding-bottom: 1rem !important;
+    }
+    /* Reduce spacing between elements in sidebar */
+    section[data-testid="stSidebar"] .element-container {
+        margin-bottom: 0.3rem !important;
+    }
+    section[data-testid="stSidebar"] h3 {
+        margin-top: 0.5rem !important;
+        margin-bottom: 0.3rem !important;
+        font-size: 1.1rem !important;
+    }
+    section[data-testid="stSidebar"] .stMarkdown p {
+        margin-bottom: 0.2rem !important;
+    }
+    section[data-testid="stSidebar"] hr {
+        margin: 0.5rem 0 !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -115,14 +142,12 @@ def display_sidebar():
                 st.caption(f"Profile: {os.getenv('AWS_PROFILE')}")
         else:
             st.error("❌ AWS Not Configured")
-            st.caption("Set AWS credentials in .env or run: okta-aws-cli -p sandbox")
         
         # Tavily Status
         if creds["tavily"]:
             st.success("✅ Tavily API Configured")
         else:
             st.warning("⚠️ Tavily Not Configured")
-            st.caption("Using mock data for evidence")
         
         # Model Info
         st.info(f"**Model:** {creds['model_id'].split('.')[-1]}")
@@ -132,23 +157,15 @@ def display_sidebar():
         
         # Agent Info
         st.markdown("### 🤖 Active Agents")
-        st.markdown("**🏗️ Architect**")
-        st.caption("System design & scalability")
-        
-        st.markdown("**⚡ Performance**")
-        st.caption("Optimization & efficiency")
-        
-        st.markdown("**🔒 Security**")
-        st.caption("Vulnerabilities & safety")
+        st.markdown("🏗️ **Architect**")
+        st.markdown("⚡ **Performance**")
+        st.markdown("🔒 **Security**")
         
         st.markdown("---")
         
-        # About
+        # About and Documentation
         st.markdown("### ℹ️ About")
-        st.caption("Multi-Agent Debate System powered by LangGraph, AWS Bedrock, and Tavily Search.")
-        
-        if st.button("📖 Documentation"):
-            st.markdown("[View README](README.md)")
+        st.link_button("📖 Documentation", "https://github.com/saketh010/multi-agent-debate-system/tree/main")
 
 
 def display_argument(agent_name: str, argument: Dict[str, Any], round_num: int):
@@ -210,32 +227,32 @@ def display_scores(scores: list):
         with st.container():
             st.markdown(f'<div class="score-card">', unsafe_allow_html=True)
             
-            col1, col2 = st.columns([3, 1])
+            st.markdown(f"### #{idx} {score['agent_name'].upper()}")
             
+            # Display each criterion with score on the right
+            criteria = [
+                ("Logical Reasoning:", score['logical_reasoning']),
+                ("Evidence Quality:", score['evidence_quality']),
+                ("Technical Accuracy:", score['technical_accuracy']),
+                ("Relevance:", score['relevance'])
+            ]
+            
+            for criterion_name, criterion_score in criteria:
+                col1, col2, col3 = st.columns([3, 2, 1])
+                with col1:
+                    st.markdown(f"**{criterion_name}**")
+                with col2:
+                    st.progress(criterion_score / 10)
+                with col3:
+                    st.markdown(f"**{criterion_score:.1f}/10**")
+            
+            # Total score at the bottom
+            st.markdown("---")
+            col1, col2 = st.columns([5, 1])
             with col1:
-                st.markdown(f"### #{idx} {score['agent_name'].upper()}")
-                
-                # Progress bars for each criterion
-                st.markdown("**Logical Reasoning:**")
-                st.progress(score['logical_reasoning'] / 10)
-                st.caption(f"{score['logical_reasoning']:.1f}/10")
-                
-                st.markdown("**Evidence Quality:**")
-                st.progress(score['evidence_quality'] / 10)
-                st.caption(f"{score['evidence_quality']:.1f}/10")
-                
-                st.markdown("**Technical Accuracy:**")
-                st.progress(score['technical_accuracy'] / 10)
-                st.caption(f"{score['technical_accuracy']:.1f}/10")
-                
-                st.markdown("**Relevance:**")
-                st.progress(score['relevance'] / 10)
-                st.caption(f"{score['relevance']:.1f}/10")
-            
+                st.markdown("### **Total Score**")
             with col2:
-                st.markdown("### Total Score")
-                st.markdown(f"<h1 style='text-align: center; color: white;'>{score['total_score']:.1f}</h1>", unsafe_allow_html=True)
-                st.markdown("<p style='text-align: center; color: white;'>out of 40</p>", unsafe_allow_html=True)
+                st.markdown(f"### **{score['total_score']:.1f}/40**")
             
             st.markdown(f"**Feedback:** {score['feedback']}")
             st.markdown('</div>', unsafe_allow_html=True)
