@@ -208,10 +208,10 @@ def display_argument(agent_name: str, argument: Dict[str, Any], round_num: int):
 def display_cross_examination(exam: Dict[str, Any]):
     """Display cross-examination in a formatted way."""
     st.markdown(f"""
-    <div style="padding: 1rem; border-left: 3px solid #FF5722; background-color: #fff3e0; border-radius: 5px; margin: 0.5rem 0;">
-        <strong style="color: #E64A19;">🔍 {exam['examiner'].upper()}</strong> examining 
-        <strong style="color: #558B2F;">{exam['target'].upper()}</strong>
-        <p style="margin-top: 0.5rem;">{exam['critique'][:500]}{'...' if len(exam['critique']) > 500 else ''}</p>
+    <div style="padding: 1rem; border-left: 3px solid #FF5722; background-color: #1E1E1E; border-radius: 5px; margin: 0.5rem 0; border: 1px solid #333;">
+        <strong style="color: #FF7043;">🔍 {exam['examiner'].upper()}</strong> examining 
+        <strong style="color: #81C784;">{exam['target'].upper()}</strong>
+        <p style="margin-top: 0.5rem; color: #E0E0E0;">{exam['critique'][:500]}{'...' if len(exam['critique']) > 500 else ''}</p>
     </div>
     """, unsafe_allow_html=True)
 
