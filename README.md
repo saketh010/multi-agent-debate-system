@@ -13,6 +13,7 @@ The Multi-Agent Debate System enables AI agents to engage in structured technica
 - ✅ **Cross-examination** between agents
 - ✅ **Argument scoring** on 4 criteria (logic, evidence, accuracy, relevance)
 - ✅ **Final judge verdict** with detailed reasoning
+- ✅ **Human-in-the-Loop (HITL)** - Provide feedback on arguments; agents review and respond
 - ✅ **AWS Bedrock integration** using Claude 3 models
 - ✅ **Okta AWS CLI support** for enterprise authentication
 - ✅ **LangGraph orchestration** with state management and memory
@@ -177,6 +178,35 @@ python main.py
 You'll be prompted to:
 1. Enter a debate topic
 2. Choose number of rounds (1-5, default: 2)
+3. Enable Human-in-the-Loop mode (optional)
+
+**Human-in-the-Loop (HITL) Mode:**
+When enabled in CLI, the debate pauses after each agent's argument, allowing you to:
+- Provide immediate feedback or alternative perspectives
+- Agent reviews your feedback and can AGREE (revise argument) or DISAGREE (defend position)
+- Debate continues only after agent responds to your feedback
+- Perfect for real-time debate moderation and testing agent reasoning
+
+Example session:
+```bash
+$ python main.py
+> Topic: Should startups use microservices?
+> Rounds: 2
+> Enable HITL: yes
+
+[ARCHITECT argues...]
+💬 Provide Feedback to ARCHITECT?
+> I think you missed the operational complexity aspect
+
+🤖 ARCHITECT is reviewing your feedback...
+🤖 Agent AGREES:
+You raise an excellent point... [agent response]
+📝 Revised Argument: [updated argument incorporating your feedback]
+
+[PERFORMANCE argues...]
+💬 Provide Feedback to PERFORMANCE?
+> [Press Enter to continue without feedback]
+```
 3. Watch the debate unfold in real-time
 
 ### Example Topics

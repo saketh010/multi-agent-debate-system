@@ -10,6 +10,7 @@ import os
 from typing import Optional, Dict, Any
 import boto3
 from botocore.config import Config
+from botocore.exceptions import ClientError
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -128,6 +129,14 @@ class BedrockClient:
             else:
                 raise ValueError(f"Unexpected response format: {response_body}")
                 
+        except ClientError as e:
+            error_code = e.response.get("Error", {}).get("Code", "")
+            if error_code in {"ExpiredToken", "ExpiredTokenException", "RequestExpired"}:
+                raise Exception(
+                    "Bedrock API call failed: AWS session token expired. "
+                    "Please refresh credentials and retry."
+                )
+            raise Exception(f"Bedrock API call failed: {str(e)}")
         except Exception as e:
             raise Exception(f"Bedrock API call failed: {str(e)}")
     

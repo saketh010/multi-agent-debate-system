@@ -9,10 +9,12 @@ import os
 from datetime import datetime
 from typing import Dict, Any, Optional
 import time
+import boto3
+from botocore.exceptions import ClientError
 from dotenv import load_dotenv
 
-from graph.debate_graph import create_debate_graph
-from state.debate_state import create_initial_state
+from graph.debate_graph import create_debate_graph, run_debate_with_hitl
+from state.debate_state import create_initial_state, HumanIntervention
 from agents.scoring_agent import format_scores
 from agents.judge_agent import format_final_decision
 
@@ -126,6 +128,22 @@ def check_credentials():
         "model_id": model_id,
         "region": region
     }
+
+
+def validate_aws_session(region: str) -> tuple[bool, str]:
+    """Validate active AWS session/token by calling STS."""
+    try:
+        session = boto3.Session()
+        sts = session.client("sts", region_name=region)
+        sts.get_caller_identity()
+        return True, "AWS session is valid"
+    except ClientError as e:
+        code = e.response.get("Error", {}).get("Code", "")
+        if code in {"ExpiredToken", "ExpiredTokenException", "RequestExpired"}:
+            return False, "AWS session token expired"
+        return False, f"AWS validation failed: {code or str(e)}"
+    except Exception as e:
+        return False, f"AWS validation failed: {str(e)}"
 
 
 def display_sidebar():
@@ -279,29 +297,78 @@ def display_final_decision(decision: Dict[str, Any]):
     st.write(decision['reasoning'])
 
 
-def run_debate_with_progress(topic: str, max_rounds: int):
-    """Run debate with live progress updates."""
+def display_human_interventions(interventions: list):
+    """Display human interventions and agent responses."""
+    if not interventions:
+        return
     
-    # Initialize state
-    initial_state = create_initial_state(topic, max_rounds)
+    st.markdown("## 👤 Human Interventions")
     
-    # Create graph
-    graph = create_debate_graph()
+    for intervention in interventions:
+        with st.container():
+            st.markdown(f"""
+            <div style="padding: 1rem; border-left: 3px solid #4A90E2; background-color: #1E1E1E; border-radius: 5px; margin: 0.5rem 0; border: 1px solid #333;">
+                <strong style="color: #4A90E2;">👤 Human Feedback to {intervention['agent_name'].upper()}</strong> (Round {intervention['round_number']})
+                <p style="margin-top: 0.5rem; color: #E0E0E0;">{intervention['human_feedback']}</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            if intervention.get('agent_response'):
+                decision_color = "#81C784" if intervention.get('agent_agrees') else "#FF7043"
+                decision_text = "AGREES" if intervention.get('agent_agrees') else "DISAGREES"
+                
+                st.markdown(f"""
+                <div style="padding: 1rem; border-left: 3px solid {decision_color}; background-color: #1E1E1E; border-radius: 5px; margin: 0.5rem 0 1rem 2rem; border: 1px solid #333;">
+                    <strong style="color: {decision_color};">🤖 Agent {decision_text}</strong>
+                    <p style="margin-top: 0.5rem; color: #E0E0E0;">{intervention['agent_response']}</p>
+                    {f'<p style="margin-top: 0.5rem; color: #BBBBBB;"><strong>Revised Argument:</strong><br>{intervention["agent_revised_argument"]}</p>' if intervention.get('agent_revised_argument') else ''}
+                </div>
+                """, unsafe_allow_html=True)
+
+
+def run_debate_with_progress(topic: str, max_rounds: int, enable_hitl: bool = False):
+    """Run debate with live progress updates and optional HITL."""
     
-    # Create containers for different sections
-    status_container = st.container()
+    # Initialize session state for HITL persistence across reruns
+    if enable_hitl:
+        if 'debate_graph' not in st.session_state:
+            st.session_state.debate_graph = None
+        if 'debate_config' not in st.session_state:
+            st.session_state.debate_config = None
+        if 'debate_started' not in st.session_state:
+            st.session_state.debate_started = False
+    
+    # Create or retrieve graph and config
+    if not enable_hitl or not st.session_state.debate_started:
+        initial_state = create_initial_state(topic, max_rounds)
+        graph = create_debate_graph(enable_hitl=enable_hitl)
+        config = {"configurable": {"thread_id": f"debate_{datetime.now().strftime('%Y%m%d_%H%M%S')}"}}
+        stream_input = initial_state
+        
+        if enable_hitl:
+            st.session_state.debate_graph = graph
+            st.session_state.debate_config = config
+            st.session_state.debate_started = True
+    else:
+        # Resuming from interrupt - graph.stream(None) continues from checkpoint
+        graph = st.session_state.debate_graph
+        config = st.session_state.debate_config
+        stream_input = None
+    
+    # Create display containers
     progress_container = st.container()
     arguments_container = st.container()
+    feedback_container = st.container()
     cross_exam_container = st.container()
     scores_container = st.container()
     verdict_container = st.container()
+    interventions_container = st.container()
     
     # Progress tracking
     with progress_container:
         progress_bar = st.progress(0)
         status_text = st.empty()
     
-    # Track phase
     phases = [
         "Initializing debate",
         "Gathering evidence",
@@ -311,83 +378,152 @@ def run_debate_with_progress(topic: str, max_rounds: int):
         "Scoring arguments",
         "Final judgment"
     ]
-    
     current_phase = 0
     total_phases = len(phases)
     
     try:
-        # Run the graph
-        config = {"configurable": {"thread_id": f"debate_{datetime.now().strftime('%Y%m%d_%H%M%S')}"}}
-        
-        final_state = None
-        
-        for state_update in graph.stream(initial_state, config):
-            # Get the latest state
+        # Stream the graph - runs until interrupt (HITL) or completion
+        for state_update in graph.stream(stream_input, config):
+            if not isinstance(state_update, dict) or not state_update:
+                continue
+
             node_name = list(state_update.keys())[0]
             state_data = state_update[node_name]
+
+            # LangGraph can emit tuple payloads depending on stream mode/runtime metadata.
+            # Normalize to a dict so progress calculations are safe.
+            if isinstance(state_data, tuple):
+                state_data = state_data[0] if state_data and isinstance(state_data[0], dict) else {}
+            elif not isinstance(state_data, dict):
+                state_data = {}
             
-            # Update progress based on phase
-            if node_name == "moderator":
-                current_phase = 0
-            elif node_name == "evidence_retrieval":
-                current_phase = 1
-            elif node_name in ["architect", "performance", "security"]:
-                if state_data.get("round", 1) == 1:
-                    current_phase = 2
-                else:
-                    current_phase = 3
-            elif node_name == "cross_examination":
-                current_phase = 4
-            elif node_name == "scoring":
-                current_phase = 5
-            elif node_name == "judge":
-                current_phase = 6
+            # Update progress based on node
+            phase_map = {
+                "moderator": 0,
+                "evidence_retrieval": 1,
+                "architect": 2 if state_data.get("round", 0) <= 1 else 3,
+                "performance": 2 if state_data.get("round", 0) <= 1 else 3,
+                "security": 2 if state_data.get("round", 0) <= 1 else 3,
+                "cross_examination": 4,
+                "scoring": 5,
+                "judge": 6
+            }
+            current_phase = phase_map.get(node_name, current_phase)
             
-            # Update progress bar
-            progress = (current_phase + 1) / total_phases
-            progress_bar.progress(progress)
-            status_text.text(f"🔄 {phases[current_phase]}...")
+            with progress_container:
+                progress = (current_phase + 1) / total_phases
+                progress_bar.progress(progress)
+                status_text.text(f"🔄 {phases[current_phase]}...")
             
-            # Display arguments as they come
-            if "arguments" in state_data and state_data["arguments"]:
-                with arguments_container:
-                    st.markdown("## 💬 Arguments")
-                    for arg in state_data["arguments"]:
-                        display_argument(
-                            arg["agent_name"],
-                            arg,
-                            arg["round_number"]
-                        )
-            
-            # Display cross-examinations
-            if "cross_examinations" in state_data and state_data["cross_examinations"]:
-                with cross_exam_container:
-                    st.markdown("## 🔍 Cross-Examinations")
-                    for exam in state_data["cross_examinations"]:
-                        display_cross_examination(exam)
-            
-            # Display scores
-            if "scores" in state_data and state_data["scores"]:
-                with scores_container:
-                    display_scores(state_data["scores"])
-            
-            # Display final decision
-            if "final_decision" in state_data and state_data["final_decision"]:
-                with verdict_container:
-                    display_final_decision(state_data["final_decision"])
-            
-            final_state = state_data
-            time.sleep(0.1)  # Small delay for visual effect
+            time.sleep(0.05)
         
-        # Complete
-        progress_bar.progress(1.0)
-        status_text.text("✅ Debate Complete!")
+        # Stream ended - either interrupted (HITL) or completed
+        # Get the FULL accumulated state from the checkpoint
+        graph_state = graph.get_state(config)
+        full_state = graph_state.values
+        pending_next = graph_state.next  # Non-empty if interrupted
         
-        return final_state
+        # Display all accumulated arguments
+        if full_state.get("arguments"):
+            with arguments_container:
+                st.markdown("## 💬 Arguments")
+                for arg in full_state["arguments"]:
+                    display_argument(arg["agent_name"], arg, arg["round_number"])
+        
+        # Display cross-examinations
+        if full_state.get("cross_examinations"):
+            with cross_exam_container:
+                st.markdown("## 🔍 Cross-Examinations")
+                for exam in full_state["cross_examinations"]:
+                    display_cross_examination(exam)
+        
+        # Display scores
+        if full_state.get("scores"):
+            with scores_container:
+                display_scores(full_state["scores"])
+        
+        # Display final decision
+        if full_state.get("final_decision"):
+            with verdict_container:
+                display_final_decision(full_state["final_decision"])
+        
+        # Display past interventions
+        if full_state.get("human_interventions"):
+            with interventions_container:
+                display_human_interventions(full_state["human_interventions"])
+        
+        # Check if graph is paused at an interrupt (HITL waiting for feedback)
+        if enable_hitl and pending_next:
+            agent_name = full_state.get("pending_feedback_agent")
+            round_num = full_state.get("round", 1)
+            
+            with progress_container:
+                status_text.text(f"⏸️ Debate paused — waiting for your feedback on {agent_name.upper()}")
+            
+            with feedback_container:
+                st.markdown("---")
+                st.markdown(f"### 💬 Provide Feedback to **{agent_name.upper()}** (Round {round_num})")
+                st.warning(f"⏸️ The debate is paused. Review **{agent_name.upper()}**'s argument above, then submit your feedback or skip to continue.")
+                
+                feedback_text = st.text_area(
+                    f"Your feedback for {agent_name.upper()}:",
+                    key=f"feedback_input_{agent_name}_{round_num}_{id(config)}",
+                    placeholder="Share your thoughts, concerns, or alternative perspectives...",
+                    height=150
+                )
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("📝 Submit Feedback", key=f"submit_{agent_name}_{round_num}", type="primary", use_container_width=True):
+                        if feedback_text.strip():
+                            intervention = HumanIntervention(
+                                agent_name=agent_name,
+                                round_number=round_num,
+                                human_feedback=feedback_text.strip(),
+                                agent_response=None,
+                                agent_revised_argument=None,
+                                agent_agrees=None
+                            )
+                            # Use update_state with the await node so the add reducer appends
+                            graph.update_state(
+                                config,
+                                {"human_interventions": [intervention]},
+                                as_node=f"await_feedback_{agent_name}"
+                            )
+                            st.rerun()
+                        else:
+                            st.warning("Please enter feedback before submitting.")
+                
+                with col2:
+                    if st.button("➡️ Continue Without Feedback", key=f"skip_{agent_name}_{round_num}", use_container_width=True):
+                        # No state update needed - route_after_feedback will return "continue"
+                        # Just resume the graph by re-running the script
+                        st.rerun()
+            
+            # Stop script here until user interacts
+            st.stop()
+        
+        # Debate completed normally
+        with progress_container:
+            progress_bar.progress(1.0)
+            status_text.text("✅ Debate Complete!")
+        
+        # Clean up HITL session state
+        if enable_hitl:
+            for key in ['debate_graph', 'debate_config', 'debate_started', 'debate_topic', 'debate_max_rounds']:
+                if key in st.session_state:
+                    del st.session_state[key]
+        
+        return full_state
     
     except Exception as e:
-        st.error(f"❌ Error during debate: {str(e)}")
-        st.exception(e)
+        error_text = str(e)
+        if "ExpiredToken" in error_text or "expired" in error_text.lower():
+            st.error("❌ AWS session token expired while calling Bedrock.")
+            st.info("Refresh credentials and retry. Example: `okta-aws-cli -p sandbox`")
+        else:
+            st.error(f"❌ Error during debate: {error_text}")
+            st.exception(e)
         return None
 
 
@@ -407,12 +543,18 @@ def main():
         st.warning("⚠️ AWS credentials not configured. Please set up your credentials in `.env` file or run `okta-aws-cli -p sandbox`")
         st.info("See QUICKSTART.md for setup instructions.")
         st.stop()
+
+    aws_session_ok, aws_session_msg = validate_aws_session(creds["region"])
+    if not aws_session_ok:
+        st.error(f"❌ {aws_session_msg}")
+        st.info("Refresh your AWS credentials and rerun the app. Example: `okta-aws-cli -p sandbox`")
+        st.stop()
     
     # Main interface
     st.markdown("---")
     
     # Input section
-    col1, col2 = st.columns([4, 1])
+    col1, col2, col3 = st.columns([4, 1, 1])
     
     with col1:
         topic = st.text_input(
@@ -429,6 +571,13 @@ def main():
             help="Number of debate rounds (more rounds = deeper analysis)"
         )
     
+    with col3:
+        enable_hitl = st.checkbox(
+            "👤 HITL",
+            value=False,
+            help="Enable Human-in-the-Loop: Provide feedback on arguments"
+        )
+    
     # Example topics
     with st.expander("💡 Example Topics"):
         st.markdown("""
@@ -440,29 +589,42 @@ def main():
         - Is zero-trust architecture necessary for all organizations?
         """)
     
-    # Start debate button
-    if st.button("🚀 Start Debate", type="primary", use_container_width=True):
-        if not topic:
+    # Start debate button OR resume HITL debate in progress
+    hitl_in_progress = enable_hitl and st.session_state.get('debate_started', False)
+    start_clicked = st.button("🚀 Start Debate", type="primary", use_container_width=True, disabled=hitl_in_progress)
+    
+    if start_clicked or hitl_in_progress:
+        if not hitl_in_progress and not topic:
             st.error("Please enter a debate topic!")
             st.stop()
+        
+        # Use stored topic for HITL reruns
+        if hitl_in_progress:
+            topic = st.session_state.get('debate_topic', topic)
+            max_rounds = st.session_state.get('debate_max_rounds', max_rounds)
+        elif enable_hitl:
+            st.session_state.debate_topic = topic
+            st.session_state.debate_max_rounds = max_rounds
         
         st.markdown("---")
         
         # Show debate info
         st.markdown(f"### 📋 Debate Configuration")
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3, col4 = st.columns(4)
         with col1:
             st.metric("Topic", topic[:30] + "..." if len(topic) > 30 else topic)
         with col2:
             st.metric("Rounds", max_rounds)
         with col3:
             st.metric("Agents", 3)
+        with col4:
+            st.metric("HITL", "✅ Enabled" if enable_hitl else "❌ Disabled")
         
         st.markdown("---")
         
         # Run debate
         with st.spinner("Initializing debate system..."):
-            final_state = run_debate_with_progress(topic, max_rounds)
+            final_state = run_debate_with_progress(topic, max_rounds, enable_hitl)
         
         if final_state:
             # Download results button
@@ -499,6 +661,18 @@ ARGUMENTS
                 for exam in final_state["cross_examinations"]:
                     results_text += f"{exam['examiner'].upper()} examining {exam['target'].upper()}:\n"
                     results_text += f"{exam['critique']}\n\n"
+            
+            if final_state.get("human_interventions"):
+                results_text += f"\n{'='*60}\nHUMAN INTERVENTIONS\n{'='*60}\n\n"
+                for intervention in final_state["human_interventions"]:
+                    results_text += f"Human Feedback to {intervention['agent_name'].upper()} (Round {intervention['round_number']}):\n"
+                    results_text += f"{intervention['human_feedback']}\n\n"
+                    if intervention.get('agent_response'):
+                        response_type = "AGREES" if intervention.get('agent_agrees') else "DISAGREES"
+                        results_text += f"Agent {response_type}:\n"
+                        results_text += f"{intervention['agent_response']}\n\n"
+                        if intervention.get('agent_revised_argument'):
+                            results_text += f"Revised Argument:\n{intervention['agent_revised_argument']}\n\n"
             
             if final_state.get("scores"):
                 results_text += format_scores(final_state["scores"])

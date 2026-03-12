@@ -21,7 +21,7 @@ except ImportError:
 
 from dotenv import load_dotenv
 
-from graph.debate_graph import run_debate
+from graph.debate_graph import run_debate, run_debate_with_hitl
 from agents.moderator_agent import get_debate_summary
 from agents.scoring_agent import format_scores
 from agents.judge_agent import format_final_decision
@@ -178,6 +178,105 @@ def get_topic_from_user() -> Optional[str]:
     except EOFError:
         return None
 
+def run_debate_with_human_feedback(topic: str, max_rounds: int = 2) -> dict:
+    """
+    Run a debate with synchronous human-in-the-loop feedback capability.
+    Pauses after each agent for potential human feedback.
+    
+    Args:
+        topic: The debate topic
+        max_rounds: Maximum number of rounds
+    
+    Returns:
+        Final debate state
+    """
+    from graph.debate_graph import run_debate_with_hitl
+    
+    final_state = None
+    
+    # Define callback that will be called after each agent
+    def feedback_callback(state: dict, agent_name: str, round_num: int) -> str:
+        # Find and display the agent's argument
+        agent_argument = None
+        for arg in state.get("arguments", []):
+            if arg["agent_name"] == agent_name and arg["round_number"] == round_num:
+                agent_argument = arg
+                break
+        
+        if not agent_argument:
+            return None
+        
+        # Display the argument
+        print_argument(agent_name, agent_argument)
+        
+        # Ask for feedback
+        if RICH_AVAILABLE:
+            console.print(f"\n[bold yellow]💬 Provide Feedback to {agent_name.upper()}?[/bold yellow]")
+            console.print(f"[dim]Press Enter to continue without feedback, or type your thoughts:[/dim]")
+        else:
+            print(f"\n{'='*60}")
+            print(f"💬 Provide Feedback to {agent_name.upper()}?")
+            print(f"Press Enter to continue without feedback, or type your thoughts:")
+            print(f"{'='*60}")
+        
+        try:
+            feedback = input("\n> ").strip()
+            
+            if feedback:
+                if RICH_AVAILABLE:
+                    console.print(f"\n[yellow]🤖 {agent_name.upper()} is reviewing your feedback...[/yellow]")
+                else:
+                    print(f"\n🤖 {agent_name.upper()} is reviewing your feedback...")
+            
+            return feedback if feedback else None
+        except (KeyboardInterrupt, EOFError):
+            return None
+    
+    # Run debate with HITL
+    try:
+        for state_update in run_debate_with_hitl(topic, max_rounds, feedback_callback):
+            if isinstance(state_update, dict):
+                node_name = list(state_update.keys())[0]
+                final_state = state_update[node_name]
+                
+                # Display agent responses to feedback in real-time
+                if node_name == "review_feedback" and final_state.get("human_interventions"):
+                    last_intervention = final_state["human_interventions"][-1]
+                    
+                    if last_intervention.get("agent_response"):
+                        agent_agrees = last_intervention.get("agent_agrees", False)
+                        
+                        if RICH_AVAILABLE:
+                            decision_color = "green" if agent_agrees else "red"
+                            console.print(f"\n[bold {decision_color}]🤖 Agent {'AGREES' if agent_agrees else 'DISAGREES'}:[/bold {decision_color}]")
+                            console.print(last_intervention["agent_response"])
+                            
+                            if last_intervention.get("agent_revised_argument"):
+                                console.print(f"\n[bold]📝 Revised Argument:[/bold]")
+                                console.print(last_intervention["agent_revised_argument"][:500] + "..." if len(last_intervention["agent_revised_argument"]) > 500 else last_intervention["agent_revised_argument"])
+                        else:
+                            print(f"\n{'='*60}")
+                            print(f"🤖 Agent {'AGREES' if agent_agrees else 'DISAGREES'}:")
+                            print(last_intervention["agent_response"])
+                            
+                            if last_intervention.get("agent_revised_argument"):
+                                print(f"\n📝 Revised Argument:")
+                                print(last_intervention["agent_revised_argument"][:500] + "...")
+                            print(f"{'='*60}\n")
+        
+        return final_state if final_state else {"topic": topic, "arguments": [], "scores": []}
+    
+    except Exception as e:
+        if RICH_AVAILABLE:
+            console.print(f"\n[bold red]Error during HITL debate:[/bold red] {str(e)}")
+        else:
+            print(f"\nError during HITL debate: {str(e)}")
+        
+        import traceback
+        traceback.print_exc()
+        
+        return {"topic": topic, "arguments": [], "scores": []}
+
 
 def run_interactive_debate():
     """Run an interactive debate session."""
@@ -201,20 +300,40 @@ def run_interactive_debate():
     except (ValueError, KeyboardInterrupt, EOFError):
         max_rounds = 2
     
-    print_header(f"Starting Debate: {max_rounds} Rounds")
+    # Ask if user wants Human-in-the-Loop mode
+    try:
+        if RICH_AVAILABLE:
+            console.print("\n[bold]Enable Human-in-the-Loop?[/bold] [dim](Allows you to provide feedback on arguments)[/dim]")
+            console.print("[dim]Type 'yes' or 'y' to enable, any other input to disable:[/dim]")
+        else:
+            print("\nEnable Human-in-the-Loop? (Allows you to provide feedback on arguments)")
+            print("Type 'yes' or 'y' to enable, any other input to disable:")
+        
+        hitl_input = input("> ").strip().lower()
+        enable_hitl = hitl_input in ['yes', 'y']
+    except (KeyboardInterrupt, EOFError):
+        enable_hitl = False
+    
+    print_header(f"Starting Debate: {max_rounds} Rounds" + (" (Human-in-the-Loop Enabled)" if enable_hitl else ""))
     
     if RICH_AVAILABLE:
         console.print(f"[bold cyan]Topic:[/bold cyan] {topic}")
         console.print(f"[bold cyan]Rounds:[/bold cyan] {max_rounds}")
+        console.print(f"[bold cyan]HITL Mode:[/bold cyan] {'Enabled' if enable_hitl else 'Disabled'}")
         console.print("\n[yellow]Running debate workflow...[/yellow]\n")
     else:
         print(f"Topic: {topic}")
         print(f"Rounds: {max_rounds}")
+        print(f"HITL Mode: {'Enabled' if enable_hitl else 'Disabled'}")
         print("\nRunning debate workflow...\n")
     
     try:
-        # Run the debate
-        final_state = run_debate(topic, max_rounds)
+        if enable_hitl:
+            # Run debate with human-in-the-loop
+            final_state = run_debate_with_human_feedback(topic, max_rounds)
+        else:
+            # Run the standard debate
+            final_state = run_debate(topic, max_rounds)
         
         # Display results
         display_debate_results(final_state)
@@ -247,6 +366,38 @@ def display_debate_results(state: dict):
         print_section("🔍 CROSS-EXAMINATIONS", "")
         for exam in state["cross_examinations"]:
             print_cross_examination(exam)
+    
+    # Display human interventions
+    if state.get("human_interventions"):
+        print_section("👤 HUMAN INTERVENTIONS", "")
+        for intervention in state["human_interventions"]:
+            if RICH_AVAILABLE:
+                console.print(f"\n[bold blue]Human Feedback to {intervention['agent_name'].upper()}[/bold blue] (Round {intervention['round_number']}):")
+                console.print(intervention['human_feedback'])
+                
+                if intervention.get('agent_response'):
+                    decision_color = "green" if intervention.get('agent_agrees') else "red"
+                    decision_text = "AGREES" if intervention.get('agent_agrees') else "DISAGREES"
+                    console.print(f"\n[bold {decision_color}]Agent {decision_text}:[/bold {decision_color}]")
+                    console.print(intervention['agent_response'])
+                    
+                    if intervention.get('agent_revised_argument'):
+                        console.print(f"\n[bold]Revised Argument:[/bold]")
+                        console.print(intervention['agent_revised_argument'])
+                console.print("-" * 60)
+            else:
+                print(f"\nHuman Feedback to {intervention['agent_name'].upper()} (Round {intervention['round_number']}):")
+                print(intervention['human_feedback'])
+                
+                if intervention.get('agent_response'):
+                    decision_text = "AGREES" if intervention.get('agent_agrees') else "DISAGREES"
+                    print(f"\nAgent {decision_text}:")
+                    print(intervention['agent_response'])
+                    
+                    if intervention.get('agent_revised_argument'):
+                        print(f"\nRevised Argument:")
+                        print(intervention['agent_revised_argument'])
+                print("-" * 60)
     
     # Display scores
     if state.get("scores"):
@@ -297,6 +448,22 @@ def save_results(state: dict):
                 for exam in state["cross_examinations"]:
                     f.write(f"\n{exam['examiner'].upper()} examining {exam['target'].upper()}:\n")
                     f.write(f"{exam['critique']}\n\n")
+            
+            # Human interventions
+            if state.get("human_interventions"):
+                f.write(f"\n{'='*60}\nHUMAN INTERVENTIONS\n{'='*60}\n")
+                for intervention in state["human_interventions"]:
+                    f.write(f"\nHuman Feedback to {intervention['agent_name'].upper()} (Round {intervention['round_number']}):\n")
+                    f.write(f"{intervention['human_feedback']}\n\n")
+                    
+                    if intervention.get('agent_response'):
+                        decision_text = "AGREES" if intervention.get('agent_agrees') else "DISAGREES"
+                        f.write(f"Agent {decision_text}:\n")
+                        f.write(f"{intervention['agent_response']}\n\n")
+                        
+                        if intervention.get('agent_revised_argument'):
+                            f.write(f"Revised Argument:\n")
+                            f.write(f"{intervention['agent_revised_argument']}\n\n")
             
             # Scores
             if state.get("scores"):

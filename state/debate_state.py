@@ -26,6 +26,16 @@ class CrossExamination(TypedDict):
     round_number: int
 
 
+class HumanIntervention(TypedDict):
+    """Structure for human feedback on agent arguments."""
+    agent_name: str
+    round_number: int
+    human_feedback: str
+    agent_response: Optional[str]
+    agent_revised_argument: Optional[str]
+    agent_agrees: Optional[bool]
+
+
 class AgentScore(TypedDict):
     """Structure for agent scoring."""
     agent_name: str
@@ -67,6 +77,13 @@ class DebateState(TypedDict):
     # Cross-examination exchanges
     cross_examinations: Annotated[List[CrossExamination], add]
     
+    # Human interventions
+    human_interventions: Annotated[List[HumanIntervention], add]
+    
+    # Pending human feedback flag
+    awaiting_human_feedback: bool
+    pending_feedback_agent: Optional[str]
+    
     # Scoring results
     scores: List[AgentScore]
     
@@ -102,6 +119,9 @@ def create_initial_state(topic: str, max_rounds: int = 2) -> DebateState:
         arguments=[],
         evidence=[],
         cross_examinations=[],
+        human_interventions=[],
+        awaiting_human_feedback=False,
+        pending_feedback_agent=None,
         scores=[],
         final_decision=None,
         current_phase="moderator",
