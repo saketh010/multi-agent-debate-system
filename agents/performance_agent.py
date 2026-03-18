@@ -32,11 +32,15 @@ Be technical, precise, and cite specific performance characteristics."""
 def generate_opening_argument(state: DebateState) -> str:
     """Generate an opening argument for the performance agent."""
     topic = state["topic"]
+    image_context = state.get("image_context", "")
     evidence_items = [e for e in state.get("evidence", []) if e.get("agent") == AGENT_NAME]
     
     evidence_text = "\n".join([f"- {e.get('summary', '')}" for e in evidence_items[:3]])
     
+    image_block = f"\nImage-derived context:\n{image_context}\n" if image_context else ""
+
     prompt = f"""Topic: {topic}
+{image_block}
 
 You are presenting your opening argument as the Performance expert in a structured debate.
 
@@ -69,6 +73,7 @@ Sources:
 def generate_counter_argument(state: DebateState) -> str:
     """Generate a counter-argument responding to other agents."""
     topic = state["topic"]
+    image_context = state.get("image_context", "")
     other_arguments = [arg for arg in state.get("arguments", []) 
                       if arg["agent_name"] != AGENT_NAME and arg["round_number"] == state["round"]]
     
@@ -77,7 +82,10 @@ def generate_counter_argument(state: DebateState) -> str:
         for arg in other_arguments[:2]
     ])
     
+    image_block = f"\nImage-derived context:\n{image_context}\n" if image_context else ""
+
     prompt = f"""Topic: {topic}
+{image_block}
 
 You are in Round {state['round']} of the debate. Review the arguments from other perspectives:
 

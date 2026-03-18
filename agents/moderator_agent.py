@@ -22,14 +22,24 @@ def initialize_debate(state: DebateState) -> Dict[str, Any]:
         Dict with updated state fields
     """
     topic = state["topic"]
-    
+    image_context = state.get("image_context", "")
+
+    image_context_block = ""
+    if image_context:
+        image_context_block = f"""
+
+Additional context extracted from user-provided images:
+{image_context}
+"""
+
     prompt = f"""You are the moderator of a technical debate on the following topic:
 
-\"{topic}\"
+"{topic}"
+{image_context_block}
 
 Provide a brief introduction to frame the debate (2-3 sentences). Explain what aspects will be examined by the three expert agents:
 - Architecture Expert
-- Performance Expert  
+- Performance Expert
 - Security Expert
 
 Keep it professional and neutral."""

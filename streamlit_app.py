@@ -17,6 +17,7 @@ from graph.debate_graph import create_debate_graph, run_debate_with_hitl
 from state.debate_state import create_initial_state, HumanIntervention
 from agents.scoring_agent import format_scores
 from agents.judge_agent import format_final_decision
+from utils.image_ingestion import upload_and_process_images
 
 # Load environment variables
 load_dotenv()
@@ -121,12 +122,19 @@ def check_credentials():
     tavily_configured = bool(os.getenv("TAVILY_API_KEY"))
     model_id = os.getenv("BEDROCK_MODEL_ID", "anthropic.claude-3-sonnet-20240229-v1:0")
     region = os.getenv("AWS_REGION", "us-east-1")
+    s3_bucket = (
+        os.getenv("S3_IMAGE_BUCKET_NAME")
+        or os.getenv("S3_BUCKET_NAME")
+        or os.getenv("AWS_S3_BUCKET")
+        or ""
+    )
     
     return {
         "aws": aws_configured,
         "tavily": tavily_configured,
         "model_id": model_id,
-        "region": region
+        "region": region,
+        "s3_bucket": s3_bucket,
     }
 
 
@@ -170,6 +178,10 @@ def display_sidebar():
         # Model Info
         st.info(f"**Model:** {creds['model_id'].split('.')[-1]}")
         st.caption(f"Region: {creds['region']}")
+        if creds["s3_bucket"]:
+            st.caption(f"S3 Bucket: {creds['s3_bucket']}")
+        else:
+            st.caption("S3 Bucket: not configured")
         
         st.markdown("---")
         
@@ -326,7 +338,13 @@ def display_human_interventions(interventions: list):
                 """, unsafe_allow_html=True)
 
 
-def run_debate_with_progress(topic: str, max_rounds: int, enable_hitl: bool = False):
+def run_debate_with_progress(
+    topic: str,
+    max_rounds: int,
+    enable_hitl: bool = False,
+    image_context: str = "",
+    image_s3_uris: Optional[list] = None,
+):
     """Run debate with live progress updates and optional HITL."""
     
     # Initialize session state for HITL persistence across reruns
@@ -340,7 +358,12 @@ def run_debate_with_progress(topic: str, max_rounds: int, enable_hitl: bool = Fa
     
     # Create or retrieve graph and config
     if not enable_hitl or not st.session_state.debate_started:
-        initial_state = create_initial_state(topic, max_rounds)
+        initial_state = create_initial_state(
+            topic,
+            max_rounds,
+            image_context=image_context,
+            image_s3_uris=image_s3_uris or [],
+        )
         graph = create_debate_graph(enable_hitl=enable_hitl)
         config = {"configurable": {"thread_id": f"debate_{datetime.now().strftime('%Y%m%d_%H%M%S')}"}}
         stream_input = initial_state
@@ -510,7 +533,15 @@ def run_debate_with_progress(topic: str, max_rounds: int, enable_hitl: bool = Fa
         
         # Clean up HITL session state
         if enable_hitl:
-            for key in ['debate_graph', 'debate_config', 'debate_started', 'debate_topic', 'debate_max_rounds']:
+            for key in [
+                'debate_graph',
+                'debate_config',
+                'debate_started',
+                'debate_topic',
+                'debate_max_rounds',
+                'debate_image_context',
+                'debate_image_s3_uris',
+            ]:
                 if key in st.session_state:
                     del st.session_state[key]
         
@@ -577,6 +608,13 @@ def main():
             value=False,
             help="Enable Human-in-the-Loop: Provide feedback on arguments"
         )
+
+    uploaded_images = st.file_uploader(
+        "🖼️ Upload Reference Images (optional)",
+        type=["png", "jpg", "jpeg", "webp", "gif"],
+        accept_multiple_files=True,
+        help="Images are uploaded to S3, analyzed, and used as context for the debate."
+    )
     
     # Example topics
     with st.expander("💡 Example Topics"):
@@ -590,21 +628,49 @@ def main():
         """)
     
     # Start debate button OR resume HITL debate in progress
-    hitl_in_progress = enable_hitl and st.session_state.get('debate_started', False)
+    hitl_in_progress = st.session_state.get('debate_started', False)
+    if hitl_in_progress:
+        enable_hitl = True
     start_clicked = st.button("🚀 Start Debate", type="primary", use_container_width=True, disabled=hitl_in_progress)
     
     if start_clicked or hitl_in_progress:
         if not hitl_in_progress and not topic:
             st.error("Please enter a debate topic!")
             st.stop()
+
+        image_context = ""
+        image_s3_uris = []
         
         # Use stored topic for HITL reruns
         if hitl_in_progress:
             topic = st.session_state.get('debate_topic', topic)
             max_rounds = st.session_state.get('debate_max_rounds', max_rounds)
+            image_context = st.session_state.get('debate_image_context', "")
+            image_s3_uris = st.session_state.get('debate_image_s3_uris', [])
         elif enable_hitl:
             st.session_state.debate_topic = topic
             st.session_state.debate_max_rounds = max_rounds
+
+        if not hitl_in_progress and uploaded_images:
+            bucket_name = creds.get("s3_bucket", "")
+            if not bucket_name:
+                st.error("S3 image bucket is not configured. Set S3_IMAGE_BUCKET_NAME in your environment.")
+                st.stop()
+
+            with st.spinner("Uploading images to S3 and extracting technical context..."):
+                try:
+                    image_context, image_s3_uris = upload_and_process_images(
+                        uploaded_files=uploaded_images,
+                        topic=topic,
+                        bucket_name=bucket_name,
+                    )
+                except Exception as e:
+                    st.error(f"❌ Image processing failed: {str(e)}")
+                    st.stop()
+
+            if enable_hitl:
+                st.session_state.debate_image_context = image_context
+                st.session_state.debate_image_s3_uris = image_s3_uris
         
         st.markdown("---")
         
@@ -619,12 +685,27 @@ def main():
             st.metric("Agents", 3)
         with col4:
             st.metric("HITL", "✅ Enabled" if enable_hitl else "❌ Disabled")
+
+        if image_s3_uris:
+            st.markdown("**Image Sources (S3):**")
+            for uri in image_s3_uris:
+                st.write(f"- {uri}")
+
+        if image_context:
+            with st.expander("🧠 Extracted Image Context", expanded=False):
+                st.write(image_context)
         
         st.markdown("---")
         
         # Run debate
         with st.spinner("Initializing debate system..."):
-            final_state = run_debate_with_progress(topic, max_rounds, enable_hitl)
+            final_state = run_debate_with_progress(
+                topic,
+                max_rounds,
+                enable_hitl,
+                image_context=image_context,
+                image_s3_uris=image_s3_uris,
+            )
         
         if final_state:
             # Download results button
@@ -643,6 +724,18 @@ ARGUMENTS
 {'='*60}
 
 """
+
+            if image_s3_uris:
+                results_text += "\nIMAGE SOURCES (S3)\n"
+                results_text += f"{'-'*60}\n"
+                for uri in image_s3_uris:
+                    results_text += f"- {uri}\n"
+                results_text += "\n"
+
+            if image_context:
+                results_text += "\nIMAGE-DERIVED CONTEXT\n"
+                results_text += f"{'-'*60}\n"
+                results_text += f"{image_context}\n\n"
             
             for arg in final_state.get("arguments", []):
                 results_text += f"\n{arg['agent_name'].upper()} - Round {arg['round_number']}\n"

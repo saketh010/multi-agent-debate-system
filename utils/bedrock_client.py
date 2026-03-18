@@ -7,7 +7,8 @@ to generate responses using Claude models.
 
 import json
 import os
-from typing import Optional, Dict, Any
+import base64
+from typing import Optional, Dict, Any, List
 import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
@@ -163,6 +164,77 @@ class BedrockClient:
             enhanced_prompt = prompt
         
         return self.generate_response(enhanced_prompt, system_prompt)
+
+    def generate_multimodal_response(
+        self,
+        prompt: str,
+        images: List[Dict[str, bytes]],
+        system_prompt: Optional[str] = None,
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None
+    ) -> str:
+        """
+        Generate a response from the Bedrock model with text + image inputs.
+
+        Args:
+            prompt: The user prompt/question
+            images: List of dicts with keys: bytes, media_type
+            system_prompt: Optional system prompt for context
+            max_tokens: Override default max tokens
+            temperature: Override default temperature
+
+        Returns:
+            str: Generated response text
+        """
+        max_tokens = max_tokens or self.max_tokens
+        temperature = temperature or self.temperature
+
+        content_blocks = []
+        for image in images:
+            content_blocks.append(
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": image["media_type"],
+                        "data": base64.b64encode(image["bytes"]).decode("utf-8")
+                    }
+                }
+            )
+
+        content_blocks.append({"type": "text", "text": prompt})
+
+        request_body = {
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "messages": [{"role": "user", "content": content_blocks}]
+        }
+
+        if system_prompt:
+            request_body["system"] = system_prompt
+
+        try:
+            response = self.client.invoke_model(
+                modelId=self.model_id,
+                body=json.dumps(request_body)
+            )
+
+            response_body = json.loads(response["body"].read())
+            if "content" in response_body:
+                return response_body["content"][0]["text"]
+
+            raise ValueError(f"Unexpected response format: {response_body}")
+        except ClientError as e:
+            error_code = e.response.get("Error", {}).get("Code", "")
+            if error_code in {"ExpiredToken", "ExpiredTokenException", "RequestExpired"}:
+                raise Exception(
+                    "Bedrock API call failed: AWS session token expired. "
+                    "Please refresh credentials and retry."
+                )
+            raise Exception(f"Bedrock API call failed: {str(e)}")
+        except Exception as e:
+            raise Exception(f"Bedrock API call failed: {str(e)}")
 
 
 # Global client instance (initialized lazily)

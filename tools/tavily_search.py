@@ -143,6 +143,7 @@ def evidence_retrieval_node(state: Dict[str, Any]) -> Dict[str, Any]:
         Dict with evidence items
     """
     topic = state["topic"]
+    image_context = state.get("image_context", "")
     active_agents = state.get("active_agents", ["architect", "performance", "security"])
     
     evidence_items = []
@@ -153,6 +154,13 @@ def evidence_retrieval_node(state: Dict[str, Any]) -> Dict[str, Any]:
         "performance": f"{topic} performance benchmarks optimization latency",
         "security": f"{topic} security vulnerabilities best practices"
     }
+
+    if image_context:
+        # Keep image context compact to avoid overlong queries.
+        compact_context = image_context[:300]
+        search_queries = {
+            k: f"{v} {compact_context}" for k, v in search_queries.items()
+        }
     
     tool = get_search_tool()
     

@@ -21,6 +21,7 @@ def judge_node(state: DebateState) -> Dict[str, Any]:
         Dict with final decision
     """
     topic = state["topic"]
+    image_context = state.get("image_context", "")
     arguments = state.get("arguments", [])
     scores = state.get("scores", [])
     cross_examinations = state.get("cross_examinations", [])
@@ -45,9 +46,12 @@ def judge_node(state: DebateState) -> Dict[str, Any]:
     ])
     
     # Generate final decision
+    image_context_block = f"\nIMAGE-DERIVED CONTEXT:\n{image_context}\n" if image_context else ""
+
     prompt = f"""You are the final judge in a technical debate.
 
 Topic: {topic}
+{image_context_block}
 
 ARGUMENTS PRESENTED:
 {args_summary}

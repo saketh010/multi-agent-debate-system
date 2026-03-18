@@ -65,6 +65,8 @@ class DebateState(TypedDict):
     """
     # Core debate information
     topic: str
+    image_context: str
+    image_s3_uris: List[str]
     round: int
     max_rounds: int
     
@@ -101,7 +103,12 @@ class DebateState(TypedDict):
     debate_ended: Optional[str]
 
 
-def create_initial_state(topic: str, max_rounds: int = 2) -> DebateState:
+def create_initial_state(
+    topic: str,
+    max_rounds: int = 2,
+    image_context: str = "",
+    image_s3_uris: Optional[List[str]] = None,
+) -> DebateState:
     """
     Create an initial debate state with default values.
     
@@ -114,6 +121,8 @@ def create_initial_state(topic: str, max_rounds: int = 2) -> DebateState:
     """
     return DebateState(
         topic=topic,
+        image_context=image_context,
+        image_s3_uris=image_s3_uris or [],
         round=0,
         max_rounds=max_rounds,
         arguments=[],

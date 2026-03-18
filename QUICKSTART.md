@@ -55,6 +55,9 @@ This installs:
    ```bash
    # Only add your Tavily API key:
    TAVILY_API_KEY=tvly-xxxxxxxxxxxxxxxxxxxxxx
+
+   # Required for Streamlit image upload feature:
+   S3_IMAGE_BUCKET_NAME=your-debate-image-bucket
    
    # Keep these as-is:
    AWS_REGION=us-east-1
@@ -92,6 +95,7 @@ This installs:
    AWS_REGION=us-east-1
    BEDROCK_MODEL_ID=anthropic.claude-3-sonnet-20240229-v1:0
    TAVILY_API_KEY=tvly-...
+   S3_IMAGE_BUCKET_NAME=your-debate-image-bucket
    ```
 
 3. **Run the debate:**
